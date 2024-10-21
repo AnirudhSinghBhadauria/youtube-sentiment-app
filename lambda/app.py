@@ -3,12 +3,13 @@ import os
 import json
 import boto3
 import pandas as pd
+import botocore.exceptions
 from datetime import datetime
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 
-DEVELOPER_KEY = os.environ['DEVELOPER_KEY']
+DEVELOPER_KEY = os.getenv('DEVELOPER_KEY')
 youtube = build("youtube", "v3", developerKey=DEVELOPER_KEY)
 
 s3 = boto3.client('s3')
@@ -25,7 +26,15 @@ def get_video_duration(video_id):
     video_duration = video_response['items'][0]['contentDetails']['duration']
     return format_duration(video_duration)
 
-def get_comments(video_id, video_title, video_release):
+def get_channel_handle(channel_id):
+    request = youtube.channels().list(
+        part="snippet,contentDetails,statistics",
+        id=channel_id
+    )
+    response = request.execute()
+    return response['items'][0]['snippet']['customUrl'][1:]
+
+def get_comments(video_id, video_title, video_release, channel_handle):
     comments = []
     next_page_token = None
 
@@ -53,17 +62,27 @@ def get_comments(video_id, video_title, video_release):
 
     video_name = "".join([char for char in video_title[:16] if char.isalnum()])
     df = pd.DataFrame(comments, columns=['author', 'updated_at', 'like_count', 'text'])
-    
-    filename = f"stage/{video_name}-{video_id}-{generate_timestamp(video_release)}.parquet"
-    
-    # Save DataFrame to Parquet and upload to S3
+
+    filename = f"stage/{channel_handle}/{video_name}_{video_id}_{generate_timestamp(video_release)}.parquet"
+
+    # Check if the Parquet file already exists in the S3 bucket
+    bucket_name = os.getenv('S3_BUCKET_NAME')
+    try:
+        s3.head_object(Bucket=bucket_name, Key=filename)
+        print(f"Skipping file {filename} as it already exists in the S3 bucket.")
+        return None
+    except botocore.exceptions.ClientError as err:
+        if err.response['Error']['Code'] == '404':
+            pass
+        else:
+            raise err
+
     parquet_buffer = io.BytesIO()
     df.to_parquet(parquet_buffer)
     parquet_buffer.seek(0)
-    
-    bucket_name = os.environ['S3_BUCKET_NAME']
+
     s3.put_object(Bucket=bucket_name, Key=filename, Body=parquet_buffer.getvalue())
-    
+
     return filename
 
 def get_channel_videos(channel_id, max_videos=2):
@@ -110,19 +129,29 @@ def lambda_handler(event, context):
         channel_id = event['channel_id']
         
         videos = get_channel_videos(channel_id)
+        channel_handle = get_channel_handle(channel_id)
         
         processed_files = []
+        skipped_files = []
+        
         for video in videos:
-            filename = get_comments(video['id'], video['title'], video['release'])
-            processed_files.append(filename)
+            filename = get_comments(video['id'], video['title'], video['release'], channel_handle)
+            if filename:
+                processed_files.append(filename)
+            else:
+                video_title = "".join([char for char in video['title'][:16] if char.isalnum()])
+                skipped_files.append(f"stage/{channel_handle}/{video_title}_{video['id']}_{generate_timestamp(video['release'])}.parquet")
         
         return {
             'statusCode': 200,
-            'body': json.dumps(f'Successfully processed {len(videos)} videos. Files: {", ".join(processed_files)}')
+            'body': json.dumps({
+                'processed_files': processed_files,
+                'skipped_files': skipped_files
+            })
         }
-    except Exception as e:
-        print(f"Error: {str(e)}")
+    except Exception as err:
+        print(f"Error: {str(err)}")
         return {
             'statusCode': 500,
-            'body': json.dumps(f'Error occurred: {str(e)}')
+            'body': json.dumps(f'Error occurred: {str(err)}')
         }
