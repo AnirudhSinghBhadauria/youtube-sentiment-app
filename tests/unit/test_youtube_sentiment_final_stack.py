@@ -1,7 +1,7 @@
 import aws_cdk as core
 import aws_cdk.assertions as assertions
 
-from youtube_sentiment_final.youtube_sentiment_final_stack import YoutubeSentimentFinalStack
+from app import YoutubeSentimentFinalStack
 
 # example tests. To run these tests, uncomment this file along with the example
 # resource in youtube_sentiment_final/youtube_sentiment_final_stack.py

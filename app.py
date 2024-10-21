@@ -1,11 +1,9 @@
-import os
-from aws_cdk import (
-    Stack,
-    aws_lambda as _lambda,
-    aws_s3 as s3,
-    aws_iam as iam,
-)
+from aws_cdk import App, Stack
 from constructs import Construct
+from aws_cdk import aws_lambda as _lambda
+from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_iam as iam
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -29,3 +27,7 @@ class YoutubeSentimentFinalStack(Stack):
         )
 
         bucket.grant_write(docker_lambda)
+
+app = App()
+YoutubeSentimentFinalStack(app, "YoutubeSentimentFinalStack")
+app.synth()
