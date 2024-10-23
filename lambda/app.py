@@ -126,22 +126,23 @@ def get_channel_videos(channel_id, max_videos=2):
 
 def lambda_handler(event, context):
     try:
-        channel_id = event['channel_id']
-        
-        videos = get_channel_videos(channel_id)
-        channel_handle = get_channel_handle(channel_id)
+        channel_ids = event['channel_ids']        
         
         processed_files = []
-        skipped_files = []
-        
-        for video in videos:
-            filename = get_comments(video['id'], video['title'], video['release'], channel_handle)
-            if filename:
-                processed_files.append(filename)
-            else:
-                video_title = "".join([char for char in video['title'][:16] if char.isalnum()])
-                skipped_files.append(f"stage/{channel_handle}/{video_title}_{video['id']}_{generate_timestamp(video['release'])}.parquet")
-        
+        skipped_files = [] 
+               
+        for channel_id in channel_ids:
+            videos = get_channel_videos(channel_id)
+            channel_handle = get_channel_handle(channel_id)            
+            
+            for video in videos:
+                filename = get_comments(video['id'], video['title'], video['release'], channel_handle)
+                if filename:
+                    processed_files.append(filename)
+                else:
+                    video_title = "".join([char for char in video['title'][:16] if char.isalnum()])
+                    skipped_files.append(f"stage/{channel_handle}/{video_title}_{video['id']}_{generate_timestamp(video['release'])}.parquet")     
+                       
         return {
             'statusCode': 200,
             'body': json.dumps({
@@ -154,4 +155,4 @@ def lambda_handler(event, context):
         return {
             'statusCode': 500,
             'body': json.dumps(f'Error occurred: {str(err)}')
-        }
+        }     
