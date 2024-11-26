@@ -34,6 +34,17 @@ def get_channel_handle(channel_id):
     response = request.execute()
     return response['items'][0]['snippet']['customUrl'][1:]
 
+def check_file_exists_in_dump(bucket_name, filename):
+    dump_filename = filename.replace('stage/', 'dump/')
+    
+    try:
+        s3.head_object(Bucket=bucket_name, Key=dump_filename)
+        return True
+    except botocore.exceptions.ClientError as err:
+        if err.response['Error']['Code'] == '404':
+            return False
+        raise err
+
 def get_comments(video_id, video_title, video_release, channel_handle):
     comments = []
     next_page_token = None
@@ -63,19 +74,12 @@ def get_comments(video_id, video_title, video_release, channel_handle):
     video_name = "".join([char for char in video_title[:16] if char.isalnum()])
     df = pd.DataFrame(comments, columns=['author', 'updated_at', 'like_count', 'text'])
 
-    filename = f"stage/{channel_handle}/{video_name}_{video_id}_{generate_timestamp(video_release)}.parquet"
+    filename = f"stage/{channel_handle}/{video_name}%{video_id}%{generate_timestamp(video_release)}.parquet"
 
-    # Check if the Parquet file already exists in the S3 bucket
     bucket_name = os.getenv('S3_BUCKET_NAME')
-    try:
-        s3.head_object(Bucket=bucket_name, Key=filename)
-        print(f"Skipping file {filename} as it already exists in the S3 bucket.")
+    if check_file_exists_in_dump(bucket_name, filename):
+        print(f"Skipping file {filename} as it already exists in the dump/ folder.")
         return None
-    except botocore.exceptions.ClientError as err:
-        if err.response['Error']['Code'] == '404':
-            pass
-        else:
-            raise err
 
     parquet_buffer = io.BytesIO()
     df.to_parquet(parquet_buffer)
@@ -141,7 +145,7 @@ def lambda_handler(event, context):
                     processed_files.append(filename)
                 else:
                     video_title = "".join([char for char in video['title'][:16] if char.isalnum()])
-                    skipped_files.append(f"stage/{channel_handle}/{video_title}_{video['id']}_{generate_timestamp(video['release'])}.parquet")     
+                    skipped_files.append(f"stage/{channel_handle}/{video_title}%{video['id']}%{generate_timestamp(video['release'])}.parquet")     
                        
         return {
             'statusCode': 200,
@@ -155,4 +159,5 @@ def lambda_handler(event, context):
         return {
             'statusCode': 500,
             'body': json.dumps(f'Error occurred: {str(err)}')
-        }     
+        }
+        
